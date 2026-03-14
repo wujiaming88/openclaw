@@ -31,6 +31,11 @@ import {
   resolveOpenAIServiceTier,
 } from "./openai-stream-wrappers.js";
 import {
+  createVolcengineFastModeWrapper,
+  isVolcengineProvider,
+  resolveVolcengineFastMode,
+} from "./volcengine-stream-wrappers.js";
+import {
   createKilocodeWrapper,
   createOpenRouterSystemCacheWrapper,
   createOpenRouterWrapper,
@@ -451,6 +456,15 @@ export function applyExtraParamsToAgent(
   if (openAIFastMode) {
     log.debug(`applying OpenAI fast mode for ${provider}/${modelId}`);
     agent.streamFn = createOpenAIFastModeWrapper(agent.streamFn);
+  }
+
+  // Volcengine / BytePlus fast mode
+  const volcFastMode = resolveVolcengineFastMode(merged);
+  if (volcFastMode !== undefined && isVolcengineProvider(provider)) {
+    log.debug(
+      `applying Volcengine/BytePlus fast mode=${volcFastMode} for ${provider}/${modelId}`,
+    );
+    agent.streamFn = createVolcengineFastModeWrapper(agent.streamFn, volcFastMode);
   }
 
   const openAIServiceTier = resolveOpenAIServiceTier(merged);
