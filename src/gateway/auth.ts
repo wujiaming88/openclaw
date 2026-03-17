@@ -349,6 +349,16 @@ function authorizeTrustedProxy(params: {
 
   const userHeaderValue = headerValue(req.headers[trustedProxyConfig.userHeader.toLowerCase()]);
   if (!userHeaderValue || userHeaderValue.trim() === "") {
+    // Loopback fallback: when the request comes from a loopback address
+    // and loopbackUser is configured, use that identity instead of rejecting.
+    if (trustedProxyConfig.loopbackUser && isLoopbackAddress(remoteAddr)) {
+      const fallbackUser = trustedProxyConfig.loopbackUser.trim();
+      const allowUsers = trustedProxyConfig.allowUsers ?? [];
+      if (allowUsers.length > 0 && !allowUsers.includes(fallbackUser)) {
+        return { reason: "trusted_proxy_user_not_allowed" };
+      }
+      return { user: fallbackUser };
+    }
     return { reason: "trusted_proxy_user_missing" };
   }
 

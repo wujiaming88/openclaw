@@ -145,6 +145,13 @@ export type GatewayTrustedProxyConfig = {
    * Example: ["nick@example.com", "admin@company.org"]
    */
   allowUsers?: string[];
+  /**
+   * Fallback user identity for loopback connections (127.0.0.1 / ::1) that
+   * arrive without the userHeader. Allows local CLI and sub-agents to
+   * authenticate when running on the same host as the gateway.
+   * Only applies when the connection source is a loopback address in trustedProxies.
+   */
+  loopbackUser?: string;
 };
 
 export type GatewayAuthConfig = {

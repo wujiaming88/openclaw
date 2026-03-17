@@ -649,4 +649,136 @@ describe("trusted-proxy auth", () => {
     expect(res.ok).toBe(true);
     expect(res.user).toBe("nick@example.com");
   });
+
+  // --- loopbackUser fallback tests ---
+
+  it("falls back to loopbackUser for loopback request without user header", async () => {
+    const res = await authorizeTrustedProxy({
+      auth: {
+        mode: "trusted-proxy",
+        allowTailscale: false,
+        trustedProxy: {
+          userHeader: "x-auth-request-email",
+          loopbackUser: "local@example.com",
+        },
+      },
+      trustedProxies: ["127.0.0.1"],
+      remoteAddress: "127.0.0.1",
+      headers: {},
+    });
+    expect(res.ok).toBe(true);
+    expect(res.method).toBe("trusted-proxy");
+    expect(res.user).toBe("local@example.com");
+  });
+
+  it("does not use loopbackUser for non-loopback request", async () => {
+    const res = await authorizeTrustedProxy({
+      auth: {
+        mode: "trusted-proxy",
+        allowTailscale: false,
+        trustedProxy: {
+          userHeader: "x-auth-request-email",
+          loopbackUser: "local@example.com",
+        },
+      },
+      trustedProxies: ["10.0.0.1"],
+      remoteAddress: "10.0.0.1",
+      headers: {},
+    });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("trusted_proxy_user_missing");
+  });
+
+  it("does not use loopbackUser when user header is present", async () => {
+    const res = await authorizeTrustedProxy({
+      auth: {
+        mode: "trusted-proxy",
+        allowTailscale: false,
+        trustedProxy: {
+          userHeader: "x-auth-request-email",
+          loopbackUser: "fallback@example.com",
+        },
+      },
+      trustedProxies: ["127.0.0.1"],
+      remoteAddress: "127.0.0.1",
+      headers: {
+        "x-auth-request-email": "real@example.com",
+      },
+    });
+    expect(res.ok).toBe(true);
+    expect(res.user).toBe("real@example.com");
+  });
+
+  it("rejects loopbackUser not in allowUsers list", async () => {
+    const res = await authorizeTrustedProxy({
+      auth: {
+        mode: "trusted-proxy",
+        allowTailscale: false,
+        trustedProxy: {
+          userHeader: "x-auth-request-email",
+          loopbackUser: "local@example.com",
+          allowUsers: ["admin@example.com"],
+        },
+      },
+      trustedProxies: ["127.0.0.1"],
+      remoteAddress: "127.0.0.1",
+      headers: {},
+    });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("trusted_proxy_user_not_allowed");
+  });
+
+  it("accepts loopbackUser when in allowUsers list", async () => {
+    const res = await authorizeTrustedProxy({
+      auth: {
+        mode: "trusted-proxy",
+        allowTailscale: false,
+        trustedProxy: {
+          userHeader: "x-auth-request-email",
+          loopbackUser: "local@example.com",
+          allowUsers: ["admin@example.com", "local@example.com"],
+        },
+      },
+      trustedProxies: ["127.0.0.1"],
+      remoteAddress: "127.0.0.1",
+      headers: {},
+    });
+    expect(res.ok).toBe(true);
+    expect(res.user).toBe("local@example.com");
+  });
+
+  it("loopbackUser works with IPv6 loopback (::1)", async () => {
+    const res = await authorizeTrustedProxy({
+      auth: {
+        mode: "trusted-proxy",
+        allowTailscale: false,
+        trustedProxy: {
+          userHeader: "x-auth-request-email",
+          loopbackUser: "local@example.com",
+        },
+      },
+      trustedProxies: ["::1"],
+      remoteAddress: "::1",
+      headers: {},
+    });
+    expect(res.ok).toBe(true);
+    expect(res.user).toBe("local@example.com");
+  });
+
+  it("does not use loopbackUser when loopbackUser is not configured", async () => {
+    const res = await authorizeTrustedProxy({
+      auth: {
+        mode: "trusted-proxy",
+        allowTailscale: false,
+        trustedProxy: {
+          userHeader: "x-auth-request-email",
+        },
+      },
+      trustedProxies: ["127.0.0.1"],
+      remoteAddress: "127.0.0.1",
+      headers: {},
+    });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toBe("trusted_proxy_user_missing");
+  });
 });
