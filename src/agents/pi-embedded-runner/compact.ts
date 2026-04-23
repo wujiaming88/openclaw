@@ -847,6 +847,7 @@ export async function compactEmbeddedPiSessionDirect(
       const { customTools } = splitSdkTools({
         tools: effectiveTools,
         sandboxEnabled: !!sandbox?.enabled,
+        toolCallTimeoutSeconds: params.cfg?.agents?.defaults?.toolCallTimeoutSeconds,
       });
       // Pi treats `tools` as a name allowlist during session creation. Pass the
       // exact OpenClaw-managed registrations so custom tools survive startup.

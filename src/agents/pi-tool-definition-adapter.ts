@@ -213,7 +213,81 @@ export function isClientToolNameConflictError(err: unknown): err is Error {
   return err instanceof Error && err.message.startsWith(CLIENT_TOOL_NAME_CONFLICT_PREFIX);
 }
 
-export function toToolDefinitions(tools: AnyAgentTool[]): ToolDefinition[] {
+/**
+ * Wraps a tool execution promise with a timeout.
+ * If the tool doesn't complete within the timeout, returns an error result instead of hanging.
+ * Properly cleans up timeout timers and abort signal listeners to prevent memory leaks.
+ */
+function withToolCallTimeout<T>(
+  execute: () => Promise<T>,
+  timeoutMs: number,
+  toolName: string,
+  signal?: AbortSignal,
+): Promise<T> {
+  if (timeoutMs <= 0 || signal?.aborted) {
+    return execute();
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let timeoutId: NodeJS.Timeout | undefined;
+
+    const finish = (value: T | Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      if (signal) {
+        signal.removeEventListener("abort", onAbort);
+      }
+      if (value instanceof Error) {
+        reject(value);
+      } else {
+        resolve(value);
+      }
+    };
+
+    const onAbort = () => {
+      finish(new Error("Tool execution aborted"));
+    };
+
+    timeoutId = setTimeout(() => {
+      finish(
+        new Error(
+          `Tool '${toolName}' timed out after ${timeoutMs}ms. The tool did not complete in time.`,
+        ),
+      );
+    }, timeoutMs);
+
+    if (signal) {
+      signal.addEventListener("abort", onAbort);
+    }
+
+    execute()
+      .then((result) => finish(result))
+      .catch((err) => finish(err instanceof Error ? err : new Error(String(err))))
+      .finally(() => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        if (signal) {
+          signal.removeEventListener("abort", onAbort);
+        }
+      });
+  });
+}
+
+export function toToolDefinitions(
+  tools: AnyAgentTool[],
+  config?: { toolCallTimeoutSeconds?: number },
+): ToolDefinition[] {
+  const timeoutMs =
+    typeof config?.toolCallTimeoutSeconds === "number" && config.toolCallTimeoutSeconds > 0
+      ? config.toolCallTimeoutSeconds * 1000
+      : 60000; // Default 60s
   return tools.map((tool) => {
     const name = tool.name || "tool";
     const normalizedName = normalizeToolName(name);
@@ -238,7 +312,12 @@ export function toToolDefinitions(tools: AnyAgentTool[]): ToolDefinition[] {
             }
             executeParams = hookOutcome.params;
           }
-          const rawResult = await tool.execute(toolCallId, executeParams, signal, onUpdate);
+          const rawResult = await withToolCallTimeout(
+            () => tool.execute(toolCallId, executeParams, signal, onUpdate),
+            timeoutMs,
+            normalizedName,
+            signal,
+          );
           const result = normalizeToolExecutionResult({
             toolName: normalizedName,
             result: rawResult,
