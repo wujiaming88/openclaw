@@ -11,7 +11,9 @@ import { sanitizeForConsole } from "./console-sanitize.js";
 import type { ClientToolDefinition } from "./pi-embedded-runner/run/params.js";
 import type { HookContext } from "./pi-tools.before-tool-call.js";
 import {
+  buildBlockedToolResult,
   isToolWrappedWithBeforeToolCallHook,
+  isBeforeToolCallBlockedError,
   runBeforeToolCallHook,
 } from "./pi-tools.before-tool-call.js";
 import { normalizeToolName } from "./tool-policy.js";
@@ -308,6 +310,12 @@ export function toToolDefinitions(
               toolCallId,
             });
             if (hookOutcome.blocked) {
+              if (hookOutcome.kind === "veto") {
+                return buildBlockedToolResult({
+                  reason: hookOutcome.reason,
+                  deniedReason: hookOutcome.deniedReason,
+                });
+              }
               throw new Error(hookOutcome.reason);
             }
             executeParams = hookOutcome.params;
@@ -333,6 +341,12 @@ export function toToolDefinitions(
               : "";
           if (name === "AbortError") {
             throw err;
+          }
+          if (isBeforeToolCallBlockedError(err)) {
+            logDebug(`tools: ${normalizedName} blocked by before_tool_call: ${err.reason}`);
+            return buildBlockedToolResult({
+              reason: err.reason,
+            });
           }
           const described = describeToolExecutionError(err);
           if (described.stack && described.stack !== described.message) {
@@ -402,13 +416,20 @@ export function toClientToolDefinitions(
       parameters: func.parameters as ToolDefinition["parameters"],
       execute: async (...args: ToolExecuteArgs): Promise<AgentToolResult<unknown>> => {
         const { toolCallId, params } = splitToolExecuteArgs(args);
+        const initialParamsRecord = coerceParamsRecord(params);
         const outcome = await runBeforeToolCallHook({
           toolName: func.name,
-          params,
+          params: initialParamsRecord,
           toolCallId,
           ctx: hookContext,
         });
         if (outcome.blocked) {
+          if (outcome.kind === "veto") {
+            return buildBlockedToolResult({
+              reason: outcome.reason,
+              deniedReason: outcome.deniedReason,
+            });
+          }
           throw new Error(outcome.reason);
         }
         const adjustedParams = outcome.params;
